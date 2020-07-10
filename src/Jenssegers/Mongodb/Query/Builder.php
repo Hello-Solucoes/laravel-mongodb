@@ -542,8 +542,20 @@ class Builder extends BaseBuilder
             $values = [$values];
         }
 
+        $options = $this->session();
+
+        // Check if table exists for multi-document transaction, otherwise create table.
+        if (!empty($options)) {
+            $schemaBuilder = $this->connection->getSchemaBuilder();
+            $tableName = $this->collection->getCollectionName();
+
+            if (!$schemaBuilder->hasTable($tableName)) {
+                $schemaBuilder->create($tableName);
+            }
+        }
+
         // Batch insert
-        $result = $this->collection->insertMany($values);
+        $result = $this->collection->insertMany($values, $options);
 
         return 1 == (int) $result->isAcknowledged();
     }
@@ -553,7 +565,9 @@ class Builder extends BaseBuilder
      */
     public function insertGetId(array $values, $sequence = null)
     {
-        $result = $this->collection->insertOne($values);
+        $options = $this->session();
+
+        $result = $this->collection->insertOne($values, $options);
 
         if (1 == (int) $result->isAcknowledged()) {
             if ($sequence === null) {
@@ -575,7 +589,7 @@ class Builder extends BaseBuilder
             $values = ['$set' => $values];
         }
 
-        return $this->performUpdate($values, $options);
+        return $this->performUpdate($values, array_merge($options, $this->session()));
     }
 
     /**
@@ -596,7 +610,7 @@ class Builder extends BaseBuilder
             $query->orWhereNotNull($column);
         });
 
-        return $this->performUpdate($query, $options);
+        return $this->performUpdate($query, array_merge($options, $this->session()));
     }
 
     /**
@@ -604,7 +618,7 @@ class Builder extends BaseBuilder
      */
     public function decrement($column, $amount = 1, array $extra = [], array $options = [])
     {
-        return $this->increment($column, -1 * $amount, $extra, $options);
+        return $this->increment($column, -1 * $amount, $extra, array_merge($options, $this->session()));
     }
 
     /**
@@ -656,8 +670,9 @@ class Builder extends BaseBuilder
             $this->where('_id', '=', $id);
         }
 
+        $options = $this->session();
         $wheres = $this->compileWheres();
-        $result = $this->collection->DeleteMany($wheres);
+        $result = $this->collection->DeleteMany($wheres, $options);
         if (1 == (int) $result->isAcknowledged()) {
             return $result->getDeletedCount();
         }
@@ -686,7 +701,7 @@ class Builder extends BaseBuilder
             'typeMap' => ['root' => 'object', 'document' => 'object'],
         ];
 
-        $result = $this->collection->drop($options);
+        $result = $this->collection->drop(array_merge($options, $this->session()));
 
         return 1 == (int) $result->ok;
     }
@@ -815,7 +830,7 @@ class Builder extends BaseBuilder
         }
 
         $wheres = $this->compileWheres();
-        $result = $this->collection->UpdateMany($wheres, $query, $options);
+        $result = $this->collection->UpdateMany($wheres, $query, array_merge($options, $this->session()));
         if (1 == (int) $result->isAcknowledged()) {
             return $result->getModifiedCount() ? $result->getModifiedCount() : $result->getUpsertedCount();
         }
@@ -1133,6 +1148,15 @@ class Builder extends BaseBuilder
         $this->options = $options;
 
         return $this;
+    }
+
+    protected function session(array $options = [])
+    {
+        if ($session = $this->connection->getSession()) {
+            $options['session'] = $this->connection->getSession();
+        }
+
+        return $options;
     }
 
     /**
